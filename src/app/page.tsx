@@ -1,65 +1,95 @@
-import Image from "next/image";
+import Link from "next/link";
+import { ShieldCheck, Trophy, Wallet } from "lucide-react";
+
+import { HeroCta } from "@/components/hero-cta";
+import { MarketStrip } from "@/components/market-strip";
+
+const features = [
+  {
+    icon: Wallet,
+    title: "Wallet Is Your Identity",
+    body: "No sign-ups, no passwords. Connect Phantom and you're in — your Solana address is your account.",
+  },
+  {
+    icon: Trophy,
+    title: "Stake USDC on Matches",
+    body: "Back your prediction on any World Cup 2026 fixture. Stakes are held in a per-market escrow on Solana.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Trustless Resolution",
+    body: "Results come from TxLINE's official data feed and are verified on-chain with Merkle proofs before payouts.",
+  },
+];
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main className="flex flex-1 flex-col gap-16 pb-24">
+      {/* Hero */}
+      <section className="relative overflow-hidden">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(45,156,219,0.14),transparent_60%)]"
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+        <div className="relative mx-auto flex max-w-6xl flex-col items-center gap-6 px-4 pb-16 pt-20 text-center sm:px-6 sm:pt-28">
+          <span className="rounded-full border border-accent/40 bg-accent/10 px-4 py-1 text-xs font-medium text-accent-light">
+            World Cup 2026 · Live on Solana Devnet
+          </span>
+          <h1 className="max-w-3xl text-4xl font-bold leading-tight tracking-tight sm:text-6xl">
+            Predict the World Cup.{" "}
+            <span className="bg-gradient-to-r from-accent to-accent-light bg-clip-text text-transparent">
+              Win on-chain.
+            </span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="max-w-xl text-lg text-muted">
+            Stake USDC on World Cup 2026 matches with live odds from TxLINE.
+            Every result is settled trustlessly on Solana with verifiable
+            Merkle proofs.
           </p>
+          <div className="flex flex-col items-center gap-4 sm:flex-row">
+            <HeroCta />
+            <Link
+              href="/how-it-works"
+              className="flex h-11 items-center rounded-xl border border-line px-6 font-medium text-muted transition-colors hover:border-accent hover:text-primary"
+            >
+              How it works
+            </Link>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+      </section>
+
+      {/* Live market preview strip */}
+      <MarketStrip />
+
+      {/* Feature cards */}
+      <section className="mx-auto grid max-w-6xl gap-6 px-4 sm:px-6 md:grid-cols-3">
+        {features.map((feature) => (
+          <div
+            key={feature.title}
+            className="flex flex-col gap-3 rounded-2xl border border-line bg-card p-6"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15">
+              <feature.icon className="h-5 w-5 text-accent-light" />
+            </span>
+            <h3 className="font-semibold">{feature.title}</h3>
+            <p className="text-sm leading-relaxed text-muted">{feature.body}</p>
+          </div>
+        ))}
+      </section>
+
+      {/* Bottom CTA */}
+      <section className="mx-auto flex w-full max-w-6xl flex-col items-center gap-4 px-4 sm:px-6">
+        <div className="flex w-full flex-col items-center gap-4 rounded-3xl border border-accent/30 bg-gradient-to-b from-card to-bg px-6 py-12 text-center">
+          <h2 className="text-2xl font-bold sm:text-3xl">
+            The knockout rounds are on.
+          </h2>
+          <p className="max-w-md text-muted">
+            Connect your wallet and stake your first prediction in under a
+            minute.
+          </p>
+          <HeroCta />
         </div>
-      </main>
-    </div>
+      </section>
+    </main>
   );
 }

@@ -1,26 +1,47 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@theme {
+  /* Polymarket-style dark fintech palette */
+  --color-bg: #0e1621;
+  --color-card: #17212e;
+  --color-line: #263344;
+  --color-accent: #2d9cdb;
+  --color-accent-light: #56b4f0;
+  --color-win: #2ebd85;
+  --color-loss: #f6465d;
+  --color-primary: #eef3f8;
+  --color-muted: #8298ad;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-primary);
+  font-family: var(--font-sans);
+}
+
+/* Wallet adapter modal + button, restyled to brand */
+.wallet-adapter-button-trigger {
+  background-color: var(--color-accent) !important;
+  border-radius: 0.5rem !important;
+  font-family: var(--font-sans) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  height: 44px !important;
+  transition: background-color 150ms ease !important;
+}
+
+.wallet-adapter-button-trigger:hover {
+  background-color: var(--color-accent-light) !important;
+}
+
+.wallet-adapter-modal-wrapper {
+  background-color: var(--color-card) !important;
+  border: 1px solid var(--color-line) !important;
+}
+
+.wallet-adapter-modal-button-close {
+  background-color: var(--color-bg) !important;
 }
