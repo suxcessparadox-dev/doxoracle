@@ -1,11 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useWallet } from "@solana/wallet-adapter-react";
-import { ExternalLink, Receipt, Ticket } from "lucide-react";
+import {
+  useAnchorWallet,
+  useConnection,
+  useWallet,
+} from "@solana/wallet-adapter-react";
+import { ExternalLink, Loader2, Receipt, Ticket } from "lucide-react";
 
-import { loadBets, type BetRecord } from "@/lib/bets";
+import {
+  OUTCOME_INDEX,
+  loadBets,
+  updateBet,
+  type BetRecord,
+} from "@/lib/bets";
+import {
+  buildClaimTransaction,
+  fetchMarket,
+  getEscrowProgram,
+} from "@/lib/program";
 import { ConnectWalletButton } from "@/components/connect-wallet-button";
 
 const placedFormat = new Intl.DateTimeFormat("en-GB", {
@@ -16,7 +30,15 @@ const placedFormat = new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC",
 });
 
-function BetCard({ bet }: { bet: BetRecord }) {
+function BetCard({
+  bet,
+  onClaim,
+  claiming,
+}: {
+  bet: BetRecord;
+  onClaim: (bet: BetRecord) => void;
+  claiming: boolean;
+}) {
   const statusStyle = {
     open: "bg-accent/10 text-accent-light",
     won: "bg-win/10 text-win",
@@ -45,7 +67,7 @@ function BetCard({ bet }: { bet: BetRecord }) {
           <span className="font-medium">{bet.outcomeLabel}</span>
         </div>
         <div className="flex flex-col">
-          <span className="text-xs text-muted">Odds</span>
+          <span className="text-xs text-muted">Odds at stake</span>
           <span className="font-medium">{bet.odds.toFixed(2)}</span>
         </div>
         <div className="flex flex-col">
@@ -53,7 +75,7 @@ function BetCard({ bet }: { bet: BetRecord }) {
           <span className="font-medium">{bet.amountUsdc} USDC</span>
         </div>
         <div className="flex flex-col">
-          <span className="text-xs text-muted">To win</span>
+          <span className="text-xs text-muted">Est. to win</span>
           <span className="font-medium text-win">
             {(bet.amountUsdc * bet.odds).toFixed(2)} USDC
           </span>
@@ -73,10 +95,40 @@ function BetCard({ bet }: { bet: BetRecord }) {
         </a>
       </div>
 
-      {bet.status !== "open" ? (
+      {bet.status === "won" && !bet.claimed ? (
+        <button
+          type="button"
+          onClick={() => onClaim(bet)}
+          disabled={claiming}
+          className="flex h-11 items-center justify-center gap-2 rounded-xl bg-win/90 font-semibold text-bg transition-colors hover:bg-win disabled:opacity-50"
+        >
+          {claiming ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Claiming…
+            </>
+          ) : (
+            "Claim payout"
+          )}
+        </button>
+      ) : null}
+
+      {bet.claimed && bet.claimSignature ? (
+        <a
+          href={`https://explorer.solana.com/tx/${bet.claimSignature}?cluster=devnet`}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-2 rounded-xl bg-bg px-4 py-3 text-xs text-win hover:underline"
+        >
+          <Receipt className="h-4 w-4" />
+          Payout claimed — view transaction ↗
+        </a>
+      ) : null}
+
+      {bet.status !== "open" && !bet.claimed ? (
         <div className="flex items-center gap-2 rounded-xl bg-bg px-4 py-3 text-xs text-muted">
           <Receipt className="h-4 w-4 text-win" />
-          Merkle proof receipt — verified on-chain via TxLINE
+          Resolved on-chain with TxLINE Merkle proof receipt
         </div>
       ) : null}
     </div>
@@ -84,13 +136,74 @@ function BetCard({ bet }: { bet: BetRecord }) {
 }
 
 export default function Bets() {
-  const { connected, publicKey } = useWallet();
+  const { connection } = useConnection();
+  const { connected, publicKey, sendTransaction } = useWallet();
+  const anchorWallet = useAnchorWallet();
   const [bets, setBets] = useState<BetRecord[] | null>(null);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
 
+  const program = useMemo(
+    () => (anchorWallet ? getEscrowProgram(connection, anchorWallet) : null),
+    [connection, anchorWallet],
+  );
+
+  // Load local records, then reconcile open bets against on-chain markets
   useEffect(() => {
-    // read after mount — localStorage doesn't exist during SSR
-    setBets(loadBets());
-  }, []);
+    const local = loadBets();
+    setBets(local);
+    if (!program) return;
+
+    let cancelled = false;
+    (async () => {
+      const openFixtures = [
+        ...new Set(
+          local
+            .filter((b) => b.status === "open")
+            .map((b) => b.fixtureId),
+        ),
+      ];
+      for (const fixtureId of openFixtures) {
+        try {
+          const market = await fetchMarket(program, fixtureId);
+          if (!market?.resolved || cancelled) continue;
+          for (const bet of local.filter(
+            (b) => b.fixtureId === fixtureId && b.status === "open",
+          )) {
+            const won = OUTCOME_INDEX[bet.outcome] === market.outcome;
+            updateBet(bet.id, { status: won ? "won" : "lost" });
+          }
+        } catch {
+          // market may not exist yet — bet stays open
+        }
+      }
+      if (!cancelled) setBets(loadBets());
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [program]);
+
+  const claim = useCallback(
+    async (bet: BetRecord) => {
+      if (!program || !publicKey) return;
+      setClaimingId(bet.id);
+      try {
+        const tx = await buildClaimTransaction(program, {
+          fixtureId: bet.fixtureId,
+          claimer: publicKey,
+        });
+        const signature = await sendTransaction(tx, connection);
+        await connection.confirmTransaction(signature, "confirmed");
+        updateBet(bet.id, { claimed: true, claimSignature: signature });
+        setBets(loadBets());
+      } catch (err) {
+        console.error("claim failed:", err);
+      } finally {
+        setClaimingId(null);
+      }
+    },
+    [program, publicKey, sendTransaction, connection],
+  );
 
   const walletBets =
     bets && publicKey
@@ -142,7 +255,14 @@ export default function Bets() {
             {openBets.length === 0 ? (
               <p className="text-sm text-muted">No open positions.</p>
             ) : (
-              openBets.map((bet) => <BetCard key={bet.id} bet={bet} />)
+              openBets.map((bet) => (
+                <BetCard
+                  key={bet.id}
+                  bet={bet}
+                  onClaim={claim}
+                  claiming={claimingId === bet.id}
+                />
+              ))
             )}
           </section>
 
@@ -159,7 +279,14 @@ export default function Bets() {
                 receipts.
               </p>
             ) : (
-              settledBets.map((bet) => <BetCard key={bet.id} bet={bet} />)
+              settledBets.map((bet) => (
+                <BetCard
+                  key={bet.id}
+                  bet={bet}
+                  onClaim={claim}
+                  claiming={claimingId === bet.id}
+                />
+              ))
             )}
           </section>
         </>

@@ -1,5 +1,11 @@
 export type Outcome = "home" | "draw" | "away";
 
+export const OUTCOME_INDEX: Record<Outcome, number> = {
+  home: 0,
+  draw: 1,
+  away: 2,
+};
+
 export interface BetRecord {
   id: string;
   fixtureId: string;
@@ -12,6 +18,8 @@ export interface BetRecord {
   wallet: string;
   placedAt: string; // ISO
   status: "open" | "won" | "lost";
+  claimed?: boolean;
+  claimSignature?: string;
 }
 
 // v1 schema — bump the key if the shape changes
@@ -32,5 +40,12 @@ export function loadBets(): BetRecord[] {
 export function saveBet(bet: BetRecord): void {
   const bets = loadBets();
   bets.unshift(bet);
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(bets));
+}
+
+export function updateBet(id: string, patch: Partial<BetRecord>): void {
+  const bets = loadBets().map((bet) =>
+    bet.id === id ? { ...bet, ...patch } : bet,
+  );
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(bets));
 }

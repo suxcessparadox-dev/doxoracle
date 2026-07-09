@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getMarketState, resolveMarketOnChain } from "@/lib/resolver";
 import { getFixtures, getMerkleProof, getScore } from "@/lib/txline";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,8 @@ interface ResolutionReport {
   status:
     | "awaiting-txline-activation"
     | "not-finished"
-    | "proof-fetched"
+    | "no-market"
+    | "already-resolved"
     | "resolved"
     | "error";
   detail?: string;
@@ -55,18 +57,31 @@ export async function GET() {
         continue;
       }
 
-      const proof = await getMerkleProof(fixture.id);
+      // Only fixtures someone staked on have a market to resolve
+      const marketState = await getMarketState(fixture.id);
+      if (!marketState) {
+        reports.push({ fixtureId: fixture.id, match, status: "no-market" });
+        continue;
+      }
+      if (marketState.resolved) {
+        reports.push({
+          fixtureId: fixture.id,
+          match,
+          status: "already-resolved",
+        });
+        continue;
+      }
 
-      // TODO(program): submit validateStat(proof) to the escrow program and
-      // distribute USDC from the market PDA to winning stakes, then persist
-      // the resolution + proof receipt for /bets.
-      void proof;
+      const proof = await getMerkleProof(fixture.id);
+      const outcome =
+        score.home > score.away ? 0 : score.home === score.away ? 1 : 2;
+      const signature = await resolveMarketOnChain(fixture.id, outcome, proof);
 
       reports.push({
         fixtureId: fixture.id,
         match,
-        status: "proof-fetched",
-        detail: `Final ${score.home}-${score.away}; on-chain validation pending program deploy`,
+        status: "resolved",
+        detail: `Final ${score.home}-${score.away} (outcome ${outcome}); resolve tx ${signature}`,
       });
     } catch (err) {
       console.error(`[cron/resolve] ${fixture.id} failed:`, err);

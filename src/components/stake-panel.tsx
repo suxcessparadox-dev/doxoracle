@@ -1,23 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { Transaction } from "@solana/web3.js";
+import { useMemo, useState } from "react";
 import {
-  createAssociatedTokenAccountIdempotentInstruction,
-  createTransferCheckedInstruction,
-  getAssociatedTokenAddressSync,
-} from "@solana/spl-token";
+  useAnchorWallet,
+  useConnection,
+  useWallet,
+} from "@solana/wallet-adapter-react";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 
 import type { FixturePreview } from "@/lib/fixtures";
-import { saveBet, type Outcome } from "@/lib/bets";
-import {
-  USDC_DECIMALS,
-  USDC_MINT,
-  deriveMarketEscrow,
-  toUsdcUnits,
-} from "@/lib/solana";
+import { OUTCOME_INDEX, saveBet, type Outcome } from "@/lib/bets";
+import { buildStakeTransaction, getEscrowProgram } from "@/lib/program";
+import { toUsdcUnits } from "@/lib/solana";
 import { ConnectWalletButton } from "./connect-wallet-button";
 
 const QUICK_AMOUNTS = [5, 10, 25, 50];
@@ -31,6 +25,12 @@ type SubmitState =
 export function StakePanel({ fixture }: { fixture: FixturePreview }) {
   const { connection } = useConnection();
   const { publicKey, sendTransaction, connected } = useWallet();
+  const anchorWallet = useAnchorWallet();
+
+  const program = useMemo(
+    () => (anchorWallet ? getEscrowProgram(connection, anchorWallet) : null),
+    [connection, anchorWallet],
+  );
 
   const [outcome, setOutcome] = useState<Outcome>("home");
   const [amount, setAmount] = useState("10");
@@ -48,34 +48,17 @@ export function StakePanel({ fixture }: { fixture: FixturePreview }) {
   const payout = validAmount ? parsedAmount * selected.odds : 0;
 
   async function placeStake() {
-    if (!publicKey || !validAmount) return;
+    if (!publicKey || !validAmount || !program) return;
     setSubmit({ phase: "signing" });
 
     try {
-      const escrowAuthority = deriveMarketEscrow(fixture.id);
-      const escrowAta = getAssociatedTokenAddressSync(
-        USDC_MINT,
-        escrowAuthority,
-        true, // escrow authority is a PDA (off-curve)
-      );
-      const userAta = getAssociatedTokenAddressSync(USDC_MINT, publicKey);
-
-      const tx = new Transaction().add(
-        createAssociatedTokenAccountIdempotentInstruction(
-          publicKey,
-          escrowAta,
-          escrowAuthority,
-          USDC_MINT,
-        ),
-        createTransferCheckedInstruction(
-          userAta,
-          USDC_MINT,
-          escrowAta,
-          publicKey,
-          toUsdcUnits(parsedAmount),
-          USDC_DECIMALS,
-        ),
-      );
+      const tx = await buildStakeTransaction(program, {
+        fixtureId: fixture.id,
+        kickoffTs: Math.floor(Date.parse(fixture.kickoff) / 1000),
+        outcome: OUTCOME_INDEX[outcome],
+        amountUnits: toUsdcUnits(parsedAmount),
+        staker: publicKey,
+      });
 
       const signature = await sendTransaction(tx, connection);
       await connection.confirmTransaction(signature, "confirmed");
@@ -96,12 +79,17 @@ export function StakePanel({ fixture }: { fixture: FixturePreview }) {
       setSubmit({ phase: "confirmed", signature });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setSubmit({
-        phase: "error",
-        message: message.includes("could not find account")
-          ? "No devnet USDC found in your wallet. Grab some free at faucet.circle.com (Solana devnet)."
-          : message,
-      });
+      let friendly = message;
+      if (message.includes("could not find account")) {
+        friendly =
+          "No devnet USDC found in your wallet. Grab some free at faucet.circle.com (Solana devnet).";
+      } else if (message.includes("MarketLocked")) {
+        friendly = "This market locked at kickoff — staking is closed.";
+      } else if (message.includes("OutcomeMismatch")) {
+        friendly =
+          "You already have a stake on a different outcome in this market.";
+      }
+      setSubmit({ phase: "error", message: friendly });
     }
   }
 
@@ -178,7 +166,7 @@ export function StakePanel({ fixture }: { fixture: FixturePreview }) {
 
       {/* Payout summary */}
       <div className="flex items-center justify-between rounded-xl bg-bg px-4 py-3">
-        <span className="text-sm text-muted">Potential payout</span>
+        <span className="text-sm text-muted">Est. payout at current odds</span>
         <span className="text-lg font-bold text-win">
           {payout.toFixed(2)} USDC
         </span>
@@ -235,9 +223,9 @@ export function StakePanel({ fixture }: { fixture: FixturePreview }) {
       ) : null}
 
       <p className="text-xs leading-relaxed text-muted">
-        Stakes are held in a per-market escrow on Solana devnet. Payouts are
-        settled trustlessly after the result is verified with a TxLINE Merkle
-        proof.
+        Stakes are held in a per-market escrow on Solana devnet. Markets are
+        parimutuel: winners split the full pool pro-rata. Payouts settle after
+        the result is verified with a TxLINE Merkle proof.
       </p>
     </div>
   );

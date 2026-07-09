@@ -6,11 +6,9 @@ export const USDC_MINT = new PublicKey(
 );
 export const USDC_DECIMALS = 6;
 
-// TODO(program): replace with the deployed Anchor escrow program ID.
-// Until then the PDA derivation below is a stand-in so the client flow
-// (derive escrow -> create ATA -> transfer USDC) is already the real shape.
+// DoxOracle escrow program (anchor keys sync), deployed to devnet
 export const ESCROW_PROGRAM_ID = new PublicKey(
-  "11111111111111111111111111111111",
+  "5yPoMKGhrfgiU7iJLE1e4VgQHTvJU94QZFCVqszwFLar",
 );
 
 const encoder = new TextEncoder();

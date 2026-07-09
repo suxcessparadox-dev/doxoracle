@@ -43,3 +43,7 @@ next-env.d.ts
 # TxLINE local activation keypair (devnet only)
 scripts/.txline-keypair.json
 .playwright-mcp/
+
+# Anchor/Rust build artifacts
+target/
+.anchor/
