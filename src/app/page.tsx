@@ -58,6 +58,28 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Trust signals */}
+      <section className="mx-auto w-full max-w-6xl px-4 sm:px-6">
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-line bg-line md:grid-cols-4">
+          {[
+            { value: "100%", label: "Non-custodial escrow" },
+            { value: "0", label: "Human sign-offs to settle" },
+            { value: "On-chain", label: "Merkle proof verification" },
+            { value: "10 min", label: "Max settlement delay" },
+          ].map((stat) => (
+            <div
+              key={stat.label}
+              className="flex flex-col items-center gap-1 bg-card px-4 py-6 text-center"
+            >
+              <span className="text-xl font-bold text-accent-light sm:text-2xl">
+                {stat.value}
+              </span>
+              <span className="text-xs text-muted">{stat.label}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* Live market preview strip */}
       <MarketStrip />
 

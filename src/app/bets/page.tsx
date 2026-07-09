@@ -15,64 +15,14 @@ import {
   Ticket,
 } from "lucide-react";
 
-import { loadBets, updateBet, type BetRecord } from "@/lib/bets";
+import { loadBets, updateBet } from "@/lib/bets";
+import { buildDisplayBets, type DisplayBet } from "@/lib/display-bets";
 import {
   buildClaimTransaction,
   fetchWalletPositions,
   getEscrowProgram,
-  type ChainPosition,
 } from "@/lib/program";
-import type { FixturePreview } from "@/lib/fixtures";
 import { ConnectWalletButton } from "@/components/connect-wallet-button";
-
-const OUTCOME_LABELS = ["Home win", "Draw", "Away win"];
-
-interface DisplayBet {
-  fixtureId: string;
-  matchLabel: string;
-  outcomeLabel: string;
-  amountUsdc: number;
-  status: "open" | "won" | "lost";
-  claimed: boolean;
-  odds?: number;
-  stakeSignature?: string;
-  claimSignature?: string;
-}
-
-function buildDisplayBets(
-  positions: ChainPosition[],
-  local: BetRecord[],
-  fixtures: FixturePreview[],
-): DisplayBet[] {
-  const fixtureById = new Map(fixtures.map((f) => [f.id, f]));
-  const localByFixture = new Map(local.map((b) => [b.fixtureId, b]));
-
-  return positions.map((pos) => {
-    const fixture = fixtureById.get(pos.fixtureId);
-    const record = localByFixture.get(pos.fixtureId);
-    const outcomeLabel = fixture
-      ? [fixture.home, "Draw", fixture.away][pos.outcomeIndex]
-      : OUTCOME_LABELS[pos.outcomeIndex];
-
-    return {
-      fixtureId: pos.fixtureId,
-      matchLabel: fixture
-        ? `${fixture.home} vs ${fixture.away}`
-        : (record?.matchLabel ?? `Fixture #${pos.fixtureId}`),
-      outcomeLabel,
-      amountUsdc: pos.amountUsdc,
-      status: pos.resolved
-        ? pos.outcomeIndex === pos.marketOutcome
-          ? "won"
-          : "lost"
-        : "open",
-      claimed: pos.claimed,
-      odds: record?.odds,
-      stakeSignature: record?.signature,
-      claimSignature: record?.claimSignature,
-    };
-  });
-}
 
 function BetCard({
   bet,

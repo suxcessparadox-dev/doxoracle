@@ -34,8 +34,8 @@ export default function Leaderboard() {
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-line bg-card">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-2xl border border-line bg-card">
+        <table className="w-full min-w-[480px] text-sm">
           <thead>
             <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
               <th className="px-5 py-4 font-medium">#</th>

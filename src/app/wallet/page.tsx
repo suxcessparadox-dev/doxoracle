@@ -74,7 +74,7 @@ export default function WalletPage() {
         <button
           type="button"
           onClick={copyAddress}
-          className="flex w-fit items-center gap-2 font-mono text-sm text-muted transition-colors hover:text-primary"
+          className="flex w-fit max-w-full items-center gap-2 break-all text-left font-mono text-sm text-muted transition-colors hover:text-primary"
         >
           {address}
           {copied ? (

@@ -1,24 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import {
+  useAnchorWallet,
+  useConnection,
+  useWallet,
+} from "@solana/wallet-adapter-react";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Coins, Ticket, TrendingUp } from "lucide-react";
+import {
+  Activity,
+  ChevronRight,
+  Coins,
+  Ticket,
+  TrendingUp,
+} from "lucide-react";
 
-import { loadBets, type BetRecord } from "@/lib/bets";
+import { loadBets } from "@/lib/bets";
+import { buildDisplayBets, type DisplayBet } from "@/lib/display-bets";
+import { fetchWalletPositions, getEscrowProgram } from "@/lib/program";
 import { USDC_MINT } from "@/lib/solana";
+import { BetDetails, StatusBadge } from "@/components/bet-details";
 import { ConnectWalletButton } from "@/components/connect-wallet-button";
-
-const activityFormat = new Intl.DateTimeFormat("en-GB", {
-  day: "numeric",
-  month: "short",
-  hour: "2-digit",
-  minute: "2-digit",
-  timeZone: "UTC",
-});
+import { Modal } from "@/components/modal";
 
 function StatCard({
   icon: Icon,
@@ -32,13 +38,13 @@ function StatCard({
   hint?: string;
 }) {
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-line bg-card p-5">
+    <div className="flex flex-col gap-3 rounded-2xl border border-line bg-card p-5 transition-colors hover:border-accent/40">
       <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10">
         <Icon className="h-4 w-4 text-accent-light" />
       </span>
       <div className="flex flex-col">
         <span className="text-xs text-muted">{label}</span>
-        <span className="text-xl font-bold">{value}</span>
+        <span className="text-xl font-bold tabular-nums">{value}</span>
         {hint ? <span className="text-xs text-muted">{hint}</span> : null}
       </div>
     </div>
@@ -48,11 +54,14 @@ function StatCard({
 export default function Dashboard() {
   const { connection } = useConnection();
   const { publicKey, connected } = useWallet();
-  const [bets, setBets] = useState<BetRecord[]>([]);
+  const anchorWallet = useAnchorWallet();
+  const [bets, setBets] = useState<DisplayBet[] | null>(null);
+  const [selected, setSelected] = useState<DisplayBet | null>(null);
 
-  useEffect(() => {
-    setBets(loadBets());
-  }, []);
+  const program = useMemo(
+    () => (anchorWallet ? getEscrowProgram(connection, anchorWallet) : null),
+    [connection, anchorWallet],
+  );
 
   const { data: balances } = useQuery({
     queryKey: ["balances", publicKey?.toBase58()],
@@ -72,6 +81,32 @@ export default function Dashboard() {
     },
   });
 
+  useEffect(() => {
+    if (!program || !publicKey) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [positions, fixturesRes] = await Promise.all([
+          fetchWalletPositions(program, publicKey),
+          fetch("/api/fixtures")
+            .then((r) => r.json())
+            .catch(() => ({ fixtures: [] })),
+        ]);
+        if (cancelled) return;
+        const local = loadBets().filter(
+          (b) => b.wallet === publicKey.toBase58(),
+        );
+        setBets(buildDisplayBets(positions, local, fixturesRes.fixtures ?? []));
+      } catch (err) {
+        console.error("dashboard: failed to load positions:", err);
+        if (!cancelled) setBets([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [program, publicKey]);
+
   if (!connected) {
     return (
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center gap-4 px-4 pb-24 pt-12">
@@ -82,13 +117,10 @@ export default function Dashboard() {
     );
   }
 
-  const walletBets = publicKey
-    ? bets.filter((bet) => bet.wallet === publicKey.toBase58())
-    : [];
-  const openBets = walletBets.filter((bet) => bet.status === "open");
-  const totalStaked = openBets.reduce((sum, bet) => sum + bet.amountUsdc, 0);
+  const openBets = (bets ?? []).filter((b) => b.status === "open");
+  const totalStaked = openBets.reduce((sum, b) => sum + b.amountUsdc, 0);
   const potential = openBets.reduce(
-    (sum, bet) => sum + bet.amountUsdc * bet.odds,
+    (sum, b) => sum + (b.odds ? b.amountUsdc * b.odds : b.amountUsdc),
     0,
   );
 
@@ -105,7 +137,7 @@ export default function Dashboard() {
         <StatCard
           icon={Coins}
           label="USDC balance"
-          value={balances ? `${balances.usdc.toFixed(2)}` : "—"}
+          value={balances ? balances.usdc.toFixed(2) : "—"}
           hint="Devnet"
         />
         <StatCard
@@ -123,7 +155,7 @@ export default function Dashboard() {
         <StatCard
           icon={TrendingUp}
           label="Potential payout"
-          value={`${potential.toFixed(2)}`}
+          value={potential.toFixed(2)}
           hint="If all open picks win"
         />
       </div>
@@ -139,7 +171,9 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {walletBets.length === 0 ? (
+        {bets === null ? (
+          <div className="h-40 animate-pulse rounded-2xl bg-card" />
+        ) : bets.length === 0 ? (
           <div className="flex flex-col items-center gap-4 rounded-2xl border border-line bg-card px-6 py-12 text-center">
             <p className="text-muted">
               No activity yet — your stakes will show up here.
@@ -152,26 +186,39 @@ export default function Dashboard() {
             </Link>
           </div>
         ) : (
-          <div className="flex flex-col divide-y divide-line rounded-2xl border border-line bg-card">
-            {walletBets.slice(0, 8).map((bet) => (
-              <div
-                key={bet.id}
-                className="flex items-center justify-between gap-4 px-5 py-4"
+          <div className="flex flex-col divide-y divide-line overflow-hidden rounded-2xl border border-line bg-card">
+            {bets.slice(0, 8).map((bet) => (
+              <button
+                key={bet.fixtureId}
+                type="button"
+                onClick={() => setSelected(bet)}
+                className="group flex items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-bg/60"
               >
-                <div className="flex flex-col">
+                <div className="flex flex-col gap-0.5">
                   <span className="text-sm font-medium">
-                    Staked {bet.amountUsdc} USDC on {bet.outcomeLabel}
+                    {bet.amountUsdc} USDC on {bet.outcomeLabel}
                   </span>
                   <span className="text-xs text-muted">{bet.matchLabel}</span>
                 </div>
-                <span className="shrink-0 text-xs text-muted">
-                  {activityFormat.format(new Date(bet.placedAt))} UTC
-                </span>
-              </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <StatusBadge status={bet.status} />
+                  <ChevronRight className="h-4 w-4 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                </div>
+              </button>
             ))}
           </div>
         )}
       </section>
+
+      <Modal
+        open={selected !== null}
+        onClose={() => setSelected(null)}
+        title="Bet details"
+      >
+        {selected ? (
+          <BetDetails bet={selected} onNavigate={() => setSelected(null)} />
+        ) : null}
+      </Modal>
     </main>
   );
 }
