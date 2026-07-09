@@ -7,36 +7,80 @@ import {
   useConnection,
   useWallet,
 } from "@solana/wallet-adapter-react";
-import { ExternalLink, Loader2, Receipt, Ticket } from "lucide-react";
-
 import {
-  OUTCOME_INDEX,
-  loadBets,
-  updateBet,
-  type BetRecord,
-} from "@/lib/bets";
+  ExternalLink,
+  FileCheck,
+  Loader2,
+  RefreshCw,
+  Ticket,
+} from "lucide-react";
+
+import { loadBets, updateBet, type BetRecord } from "@/lib/bets";
 import {
   buildClaimTransaction,
-  fetchMarket,
+  fetchWalletPositions,
   getEscrowProgram,
+  type ChainPosition,
 } from "@/lib/program";
+import type { FixturePreview } from "@/lib/fixtures";
 import { ConnectWalletButton } from "@/components/connect-wallet-button";
 
-const placedFormat = new Intl.DateTimeFormat("en-GB", {
-  day: "numeric",
-  month: "short",
-  hour: "2-digit",
-  minute: "2-digit",
-  timeZone: "UTC",
-});
+const OUTCOME_LABELS = ["Home win", "Draw", "Away win"];
+
+interface DisplayBet {
+  fixtureId: string;
+  matchLabel: string;
+  outcomeLabel: string;
+  amountUsdc: number;
+  status: "open" | "won" | "lost";
+  claimed: boolean;
+  odds?: number;
+  stakeSignature?: string;
+  claimSignature?: string;
+}
+
+function buildDisplayBets(
+  positions: ChainPosition[],
+  local: BetRecord[],
+  fixtures: FixturePreview[],
+): DisplayBet[] {
+  const fixtureById = new Map(fixtures.map((f) => [f.id, f]));
+  const localByFixture = new Map(local.map((b) => [b.fixtureId, b]));
+
+  return positions.map((pos) => {
+    const fixture = fixtureById.get(pos.fixtureId);
+    const record = localByFixture.get(pos.fixtureId);
+    const outcomeLabel = fixture
+      ? [fixture.home, "Draw", fixture.away][pos.outcomeIndex]
+      : OUTCOME_LABELS[pos.outcomeIndex];
+
+    return {
+      fixtureId: pos.fixtureId,
+      matchLabel: fixture
+        ? `${fixture.home} vs ${fixture.away}`
+        : (record?.matchLabel ?? `Fixture #${pos.fixtureId}`),
+      outcomeLabel,
+      amountUsdc: pos.amountUsdc,
+      status: pos.resolved
+        ? pos.outcomeIndex === pos.marketOutcome
+          ? "won"
+          : "lost"
+        : "open",
+      claimed: pos.claimed,
+      odds: record?.odds,
+      stakeSignature: record?.signature,
+      claimSignature: record?.claimSignature,
+    };
+  });
+}
 
 function BetCard({
   bet,
   onClaim,
   claiming,
 }: {
-  bet: BetRecord;
-  onClaim: (bet: BetRecord) => void;
+  bet: DisplayBet;
+  onClaim: (bet: DisplayBet) => void;
   claiming: boolean;
 }) {
   const statusStyle = {
@@ -68,31 +112,44 @@ function BetCard({
         </div>
         <div className="flex flex-col">
           <span className="text-xs text-muted">Odds at stake</span>
-          <span className="font-medium">{bet.odds.toFixed(2)}</span>
+          <span className="font-medium">
+            {bet.odds ? bet.odds.toFixed(2) : "—"}
+          </span>
         </div>
         <div className="flex flex-col">
-          <span className="text-xs text-muted">Stake</span>
+          <span className="text-xs text-muted">Stake (on-chain)</span>
           <span className="font-medium">{bet.amountUsdc} USDC</span>
         </div>
         <div className="flex flex-col">
           <span className="text-xs text-muted">Est. to win</span>
           <span className="font-medium text-win">
-            {(bet.amountUsdc * bet.odds).toFixed(2)} USDC
+            {bet.odds ? (bet.amountUsdc * bet.odds).toFixed(2) : "pool share"}
           </span>
         </div>
       </div>
 
-      <div className="flex items-center justify-between border-t border-line pt-3 text-xs text-muted">
-        <span>Placed {placedFormat.format(new Date(bet.placedAt))} UTC</span>
-        <a
-          href={`https://explorer.solana.com/tx/${bet.signature}?cluster=devnet`}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-1 text-accent-light hover:underline"
-        >
-          Stake transaction
-          <ExternalLink className="h-3 w-3" />
-        </a>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-3 text-xs">
+        {bet.stakeSignature ? (
+          <a
+            href={`https://explorer.solana.com/tx/${bet.stakeSignature}?cluster=devnet`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 text-accent-light hover:underline"
+          >
+            Stake transaction <ExternalLink className="h-3 w-3" />
+          </a>
+        ) : null}
+        {bet.status !== "open" ? (
+          <a
+            href={`/api/proof/${bet.fixtureId}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 text-win hover:underline"
+          >
+            <FileCheck className="h-3.5 w-3.5" />
+            TxLINE Merkle proof receipt <ExternalLink className="h-3 w-3" />
+          </a>
+        ) : null}
       </div>
 
       {bet.status === "won" && !bet.claimed ? (
@@ -113,22 +170,20 @@ function BetCard({
         </button>
       ) : null}
 
-      {bet.claimed && bet.claimSignature ? (
-        <a
-          href={`https://explorer.solana.com/tx/${bet.claimSignature}?cluster=devnet`}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-2 rounded-xl bg-bg px-4 py-3 text-xs text-win hover:underline"
-        >
-          <Receipt className="h-4 w-4" />
-          Payout claimed — view transaction ↗
-        </a>
-      ) : null}
-
-      {bet.status !== "open" && !bet.claimed ? (
-        <div className="flex items-center gap-2 rounded-xl bg-bg px-4 py-3 text-xs text-muted">
-          <Receipt className="h-4 w-4 text-win" />
-          Resolved on-chain with TxLINE Merkle proof receipt
+      {bet.claimed ? (
+        <div className="flex items-center gap-2 rounded-xl bg-bg px-4 py-3 text-xs text-win">
+          <FileCheck className="h-4 w-4" />
+          Payout claimed
+          {bet.claimSignature ? (
+            <a
+              href={`https://explorer.solana.com/tx/${bet.claimSignature}?cluster=devnet`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent-light hover:underline"
+            >
+              — view transaction ↗
+            </a>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -139,54 +194,47 @@ export default function Bets() {
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction } = useWallet();
   const anchorWallet = useAnchorWallet();
-  const [bets, setBets] = useState<BetRecord[] | null>(null);
+  const [bets, setBets] = useState<DisplayBet[] | null>(null);
   const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const program = useMemo(
     () => (anchorWallet ? getEscrowProgram(connection, anchorWallet) : null),
     [connection, anchorWallet],
   );
 
-  // Load local records, then reconcile open bets against on-chain markets
   useEffect(() => {
-    const local = loadBets();
-    setBets(local);
-    if (!program) return;
-
+    if (!program || !publicKey) return;
     let cancelled = false;
     (async () => {
-      const openFixtures = [
-        ...new Set(
-          local
-            .filter((b) => b.status === "open")
-            .map((b) => b.fixtureId),
-        ),
-      ];
-      for (const fixtureId of openFixtures) {
-        try {
-          const market = await fetchMarket(program, fixtureId);
-          if (!market?.resolved || cancelled) continue;
-          for (const bet of local.filter(
-            (b) => b.fixtureId === fixtureId && b.status === "open",
-          )) {
-            const won = OUTCOME_INDEX[bet.outcome] === market.outcome;
-            updateBet(bet.id, { status: won ? "won" : "lost" });
-          }
-        } catch {
-          // market may not exist yet — bet stays open
-        }
+      try {
+        const [positions, fixturesRes] = await Promise.all([
+          fetchWalletPositions(program, publicKey),
+          fetch("/api/fixtures")
+            .then((r) => r.json())
+            .catch(() => ({ fixtures: [] })),
+        ]);
+        if (cancelled) return;
+        const local = loadBets().filter(
+          (b) => b.wallet === publicKey.toBase58(),
+        );
+        setBets(
+          buildDisplayBets(positions, local, fixturesRes.fixtures ?? []),
+        );
+      } catch (err) {
+        console.error("failed to load on-chain positions:", err);
+        if (!cancelled) setBets([]);
       }
-      if (!cancelled) setBets(loadBets());
     })();
     return () => {
       cancelled = true;
     };
-  }, [program]);
+  }, [program, publicKey, refreshKey]);
 
   const claim = useCallback(
-    async (bet: BetRecord) => {
+    async (bet: DisplayBet) => {
       if (!program || !publicKey) return;
-      setClaimingId(bet.id);
+      setClaimingId(bet.fixtureId);
       try {
         const tx = await buildClaimTransaction(program, {
           fixtureId: bet.fixtureId,
@@ -194,8 +242,16 @@ export default function Bets() {
         });
         const signature = await sendTransaction(tx, connection);
         await connection.confirmTransaction(signature, "confirmed");
-        updateBet(bet.id, { claimed: true, claimSignature: signature });
-        setBets(loadBets());
+        // enrich the local record (if any) with the claim signature
+        const record = loadBets().find(
+          (b) =>
+            b.fixtureId === bet.fixtureId &&
+            b.wallet === publicKey.toBase58(),
+        );
+        if (record) {
+          updateBet(record.id, { claimed: true, claimSignature: signature });
+        }
+        setRefreshKey((k) => k + 1);
       } catch (err) {
         console.error("claim failed:", err);
       } finally {
@@ -205,21 +261,29 @@ export default function Bets() {
     [program, publicKey, sendTransaction, connection],
   );
 
-  const walletBets =
-    bets && publicKey
-      ? bets.filter((bet) => bet.wallet === publicKey.toBase58())
-      : [];
-  const openBets = walletBets.filter((bet) => bet.status === "open");
-  const settledBets = walletBets.filter((bet) => bet.status !== "open");
+  const openBets = (bets ?? []).filter((bet) => bet.status === "open");
+  const settledBets = (bets ?? []).filter((bet) => bet.status !== "open");
 
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-4 pb-24 pt-12 sm:px-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">My Bets</h1>
-        <p className="text-muted">
-          Your open positions and settled results, each backed by an on-chain
-          transaction.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-3xl font-bold tracking-tight">My Bets</h1>
+          <p className="text-muted">
+            Read live from the Solana blockchain — your positions follow your
+            wallet, on any device.
+          </p>
+        </div>
+        {connected ? (
+          <button
+            type="button"
+            onClick={() => setRefreshKey((k) => k + 1)}
+            className="flex h-9 items-center gap-2 rounded-lg border border-line px-3 text-xs text-muted transition-colors hover:border-accent hover:text-primary"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </button>
+        ) : null}
       </div>
 
       {!connected ? (
@@ -230,7 +294,7 @@ export default function Bets() {
         </div>
       ) : bets === null ? (
         <div className="h-40 animate-pulse rounded-2xl bg-card" />
-      ) : walletBets.length === 0 ? (
+      ) : bets.length === 0 ? (
         <div className="flex flex-col items-center gap-4 rounded-2xl border border-line bg-card px-6 py-16 text-center">
           <Ticket className="h-10 w-10 text-muted" />
           <p className="text-muted">
@@ -257,10 +321,10 @@ export default function Bets() {
             ) : (
               openBets.map((bet) => (
                 <BetCard
-                  key={bet.id}
+                  key={bet.fixtureId}
                   bet={bet}
                   onClaim={claim}
-                  claiming={claimingId === bet.id}
+                  claiming={claimingId === bet.fixtureId}
                 />
               ))
             )}
@@ -281,10 +345,10 @@ export default function Bets() {
             ) : (
               settledBets.map((bet) => (
                 <BetCard
-                  key={bet.id}
+                  key={bet.fixtureId}
                   bet={bet}
                   onClaim={claim}
-                  claiming={claimingId === bet.id}
+                  claiming={claimingId === bet.fixtureId}
                 />
               ))
             )}

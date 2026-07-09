@@ -109,6 +109,49 @@ export async function buildStakeTransaction(
   return tx;
 }
 
+export interface ChainPosition {
+  fixtureId: string;
+  outcomeIndex: number;
+  amountUsdc: number;
+  claimed: boolean;
+  resolved: boolean;
+  marketOutcome: number;
+}
+
+/**
+ * All of a wallet's positions, read straight from the chain — the durable
+ * source of truth for bet history (works from any device/browser).
+ * Position layout: 8-byte discriminator, then `owner` Pubkey at offset 8.
+ */
+export async function fetchWalletPositions(
+  program: EscrowProgram,
+  owner: PublicKey,
+): Promise<ChainPosition[]> {
+  const positions = await program.account.position.all([
+    { memcmp: { offset: 8, bytes: owner.toBase58() } },
+  ]);
+  if (positions.length === 0) return [];
+
+  const markets = await program.account.market.fetchMultiple(
+    positions.map((p) => p.account.market),
+  );
+
+  const result: ChainPosition[] = [];
+  for (let i = 0; i < positions.length; i++) {
+    const market = markets[i];
+    if (!market) continue;
+    result.push({
+      fixtureId: market.fixtureId,
+      outcomeIndex: positions[i].account.outcome,
+      amountUsdc: Number(positions[i].account.amount) / 1e6,
+      claimed: positions[i].account.claimed,
+      resolved: market.resolved,
+      marketOutcome: market.outcome,
+    });
+  }
+  return result;
+}
+
 /** Claim a payout (or refund) for a resolved market. */
 export async function buildClaimTransaction(
   program: EscrowProgram,
