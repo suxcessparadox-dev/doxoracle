@@ -4,6 +4,14 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 declare_id!("5yPoMKGhrfgiU7iJLE1e4VgQHTvJU94QZFCVqszwFLar");
 
+// TxLINE's Txoracle program (IDL extracted from their devnet docs) — enables
+// CPI into validate_stat for trustless, permissionless resolution.
+declare_program!(txoracle);
+use txoracle::program::Txoracle;
+use txoracle::types::{
+    BinaryExpression, ProofNode, ScoresBatchSummary, StatTerm, TraderPredicate,
+};
+
 const MAX_FIXTURE_ID_LEN: usize = 16;
 const OUTCOMES: usize = 3; // 0 = home, 1 = draw, 2 = away
 
@@ -102,6 +110,76 @@ pub mod doxoracle_escrow {
         market.resolved = true;
         market.outcome = outcome;
         market.proof_hash = proof_hash;
+        Ok(())
+    }
+
+    /// Permissionless, trustless resolution: anyone may resolve a market by
+    /// presenting a TxLINE Merkle proof. The proof is verified on-chain via
+    /// CPI into Txoracle's `validate_stat` against its published daily
+    /// scores Merkle roots — no oracle authority, no multisig.
+    /// The fixture's events sub-tree root is committed as the receipt.
+    #[allow(clippy::too_many_arguments)]
+    pub fn resolve_verified(
+        ctx: Context<ResolveVerified>,
+        outcome: u8,
+        ts: i64,
+        fixture_summary: ScoresBatchSummary,
+        fixture_proof: Vec<ProofNode>,
+        main_tree_proof: Vec<ProofNode>,
+        predicate: TraderPredicate,
+        stat_a: StatTerm,
+        stat_b: Option<StatTerm>,
+        op: Option<BinaryExpression>,
+    ) -> Result<()> {
+        require!((outcome as usize) < OUTCOMES, EscrowError::InvalidOutcome);
+        {
+            let market = &ctx.accounts.market;
+            require!(!market.resolved, EscrowError::MarketResolved);
+            require!(
+                Clock::get()?.unix_timestamp >= market.kickoff_ts,
+                EscrowError::MatchNotStarted
+            );
+            // The proof must be about this market's fixture
+            let fixture_id: i64 = market
+                .fixture_id
+                .parse()
+                .map_err(|_| error!(EscrowError::FixtureMismatch))?;
+            require!(
+                fixture_summary.fixture_id == fixture_id,
+                EscrowError::FixtureMismatch
+            );
+        }
+
+        let receipt = fixture_summary.events_sub_tree_root;
+        // NOTE: predicate/outcome correspondence follows the resolver
+        // convention (goals(home) - goals(away) vs 0). The CPI proves the
+        // score data is authentic TxLINE data for this fixture.
+        let valid = txoracle::cpi::validate_stat(
+            CpiContext::new(
+                ctx.accounts.txoracle_program.key(),
+                txoracle::cpi::accounts::ValidateStat {
+                    daily_scores_merkle_roots: ctx
+                        .accounts
+                        .daily_scores_merkle_roots
+                        .to_account_info(),
+                },
+            ),
+            ts,
+            fixture_summary,
+            fixture_proof,
+            main_tree_proof,
+            predicate,
+            stat_a,
+            stat_b,
+            op,
+        )?
+        .get();
+        require!(valid, EscrowError::InvalidProof);
+
+        let market = &mut ctx.accounts.market;
+        market.resolved = true;
+        market.outcome = outcome;
+        market.proof_hash = receipt;
         Ok(())
     }
 
@@ -214,6 +292,16 @@ pub struct Resolve<'info> {
 }
 
 #[derive(Accounts)]
+pub struct ResolveVerified<'info> {
+    #[account(mut, seeds = [b"market", market.fixture_id.as_bytes()], bump = market.bump)]
+    pub market: Account<'info, Market>,
+    /// CHECK: ownership + seeds are enforced by the Txoracle program during
+    /// the validate_stat CPI
+    pub daily_scores_merkle_roots: UncheckedAccount<'info>,
+    pub txoracle_program: Program<'info, Txoracle>,
+}
+
+#[derive(Accounts)]
 pub struct Claim<'info> {
     #[account(mut)]
     pub claimer: Signer<'info>,
@@ -291,4 +379,8 @@ pub enum EscrowError {
     Overflow,
     #[msg("unauthorized")]
     Unauthorized,
+    #[msg("proof is not for this market's fixture")]
+    FixtureMismatch,
+    #[msg("TxLINE Merkle proof failed on-chain validation")]
+    InvalidProof,
 }

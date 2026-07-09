@@ -418,6 +418,136 @@ export type DoxoracleEscrow = {
       ]
     },
     {
+      "name": "resolveVerified",
+      "docs": [
+        "Permissionless, trustless resolution: anyone may resolve a market by",
+        "presenting a TxLINE Merkle proof. The proof is verified on-chain via",
+        "CPI into Txoracle's `validate_stat` against its published daily",
+        "scores Merkle roots — no oracle authority, no multisig.",
+        "The fixture's events sub-tree root is committed as the receipt."
+      ],
+      "discriminator": [
+        125,
+        124,
+        152,
+        102,
+        169,
+        172,
+        56,
+        204
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.fixtureId",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "dailyScoresMerkleRoots",
+          "docs": [
+            "the validate_stat CPI"
+          ]
+        },
+        {
+          "name": "txoracleProgram",
+          "address": "6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J"
+        }
+      ],
+      "args": [
+        {
+          "name": "outcome",
+          "type": "u8"
+        },
+        {
+          "name": "ts",
+          "type": "i64"
+        },
+        {
+          "name": "fixtureSummary",
+          "type": {
+            "defined": {
+              "name": "scoresBatchSummary"
+            }
+          }
+        },
+        {
+          "name": "fixtureProof",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "proofNode"
+              }
+            }
+          }
+        },
+        {
+          "name": "mainTreeProof",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "proofNode"
+              }
+            }
+          }
+        },
+        {
+          "name": "predicate",
+          "type": {
+            "defined": {
+              "name": "traderPredicate"
+            }
+          }
+        },
+        {
+          "name": "statA",
+          "type": {
+            "defined": {
+              "name": "statTerm"
+            }
+          }
+        },
+        {
+          "name": "statB",
+          "type": {
+            "option": {
+              "defined": {
+                "name": "statTerm"
+              }
+            }
+          }
+        },
+        {
+          "name": "op",
+          "type": {
+            "option": {
+              "defined": {
+                "name": "binaryExpression"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "stake",
       "docs": [
         "Stake USDC on an outcome before kickoff. One position per wallet per",
@@ -696,9 +826,50 @@ export type DoxoracleEscrow = {
       "code": 6011,
       "name": "unauthorized",
       "msg": "unauthorized"
+    },
+    {
+      "code": 6012,
+      "name": "fixtureMismatch",
+      "msg": "proof is not for this market's fixture"
+    },
+    {
+      "code": 6013,
+      "name": "invalidProof",
+      "msg": "TxLINE Merkle proof failed on-chain validation"
     }
   ],
   "types": [
+    {
+      "name": "binaryExpression",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "add"
+          },
+          {
+            "name": "subtract"
+          }
+        ]
+      }
+    },
+    {
+      "name": "comparison",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "greaterThan"
+          },
+          {
+            "name": "lessThan"
+          },
+          {
+            "name": "equalTo"
+          }
+        ]
+      }
+    },
     {
       "name": "market",
       "type": {
@@ -777,6 +948,159 @@ export type DoxoracleEscrow = {
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "proofNode",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "isRightSibling",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "scoreStat",
+      "docs": [
+        "The on-chain representation of a single, provable key-value statistic.",
+        "This is the leaf of the inner-most Merkle tree."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "key",
+            "type": "u32"
+          },
+          {
+            "name": "value",
+            "type": "i32"
+          },
+          {
+            "name": "period",
+            "type": "i32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "scoresBatchSummary",
+      "docs": [
+        "The summary for a single fixture&#x27;s scores events within a 5-minute batch.",
+        "This contains the root of the sub-tree of all events for that fixture."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fixtureId",
+            "type": "i64"
+          },
+          {
+            "name": "updateStats",
+            "type": {
+              "defined": {
+                "name": "scoresUpdateStats"
+              }
+            }
+          },
+          {
+            "name": "eventsSubTreeRoot",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "scoresUpdateStats",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "updateCount",
+            "type": "i32"
+          },
+          {
+            "name": "minTimestamp",
+            "type": "i64"
+          },
+          {
+            "name": "maxTimestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "statTerm",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "statToProve",
+            "type": {
+              "defined": {
+                "name": "scoreStat"
+              }
+            }
+          },
+          {
+            "name": "eventStatRoot",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "statProof",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "proofNode"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "traderPredicate",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "threshold",
+            "type": "i32"
+          },
+          {
+            "name": "comparison",
+            "type": {
+              "defined": {
+                "name": "comparison"
+              }
+            }
           }
         ]
       }
