@@ -1,36 +1,94 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DoxOracle ⚽ — World Cup 2026 Prediction Markets on Solana
 
-## Getting Started
+**Stake USDC on World Cup matches. Results proven cryptographically. Payouts no human can block.**
 
-First, run the development server:
+Built for the Superteam × TxODDS World Cup Hackathon — **Prediction Markets and Settlement track**.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- 🌐 **Live app**: https://doxoracle.vercel.app (Solana devnet)
+- ⛓️ **Escrow program**: [`5yPoMKGhrfgiU7iJLE1e4VgQHTvJU94QZFCVqszwFLar`](https://explorer.solana.com/address/5yPoMKGhrfgiU7iJLE1e4VgQHTvJU94QZFCVqszwFLar?cluster=devnet)
+- 📡 **Data**: live TxLINE World Cup feeds (fixtures, odds, scores, Merkle proofs)
+
+## Why it matters
+
+Traditional betting asks you to trust the house twice: they hold your money, and the
+result is whatever they say it is. DoxOracle removes both:
+
+1. **Stakes live in a PDA escrow** — an address with no private key, controlled only
+   by program code. Nobody (including us) can touch the pool.
+2. **Results are cryptographically verified on-chain.** TxLINE publishes daily Merkle
+   roots of match data to Solana. Our program's `resolve_verified` instruction is
+   **permissionless**: anyone can settle a market by presenting a TxLINE Merkle
+   proof, which the program verifies via **CPI into Txoracle's `validate_stat`** —
+   no oracle authority, no multisig, no trust.
+
+## The full loop
+
+```
+connect Phantom → pick a market (live TxLINE odds via SSE)
+      → stake USDC (first staker atomically creates market + vault)
+      → match ends → cron fetches TxLINE score + Merkle proof (every 10 min)
+      → resolve_verified: proof checked on-chain via validate_stat CPI
+      → winners claim: parimutuel share of the pool, straight to their wallet
+      → Merkle proof receipt viewable on every settled bet
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Architecture
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Layer | Implementation |
+|---|---|
+| Frontend | Next.js 16 App Router, Tailwind v4, wallet-adapter (wallet = identity, no signups) |
+| Data | TxLINE snapshots (fixtures/odds/scores) + SSE odds stream proxied per fixture |
+| Program | Anchor: `create_market`, `stake`, `resolve_verified` (trustless), `resolve` (authority fallback), `claim` |
+| Escrow | Market PDA per fixture (`["market", fixture_id]`), USDC vault as market ATA |
+| Payouts | Parimutuel — winners split the entire pool pro-rata; full refunds if no winner |
+| Resolution | Vercel cron (10 min) → TxLINE score + stat-validation proof → on-chain resolve |
+| History | Bet positions read directly from chain — wallet is the source of truth on any device |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Run locally
 
-## Learn More
+```bash
+npm install
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+`.env.local`:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+NEXT_PUBLIC_SOLANA_NETWORK=devnet
+NEXT_PUBLIC_TXLINE_BASE=https://txline-dev.txodds.com/api
+TXLINE_JWT=        # from scripts/activate-txline.mjs
+TXLINE_API_TOKEN=  # from scripts/activate-txline.mjs
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+TxLINE activation (one-time, free): `node scripts/activate-txline.mjs` — performs the
+on-chain Service Level 1 subscription, guest auth, activation-message signing, and
+writes both tokens to `.env.local`.
 
-## Deploy on Vercel
+Program build/deploy (Anchor 1.1, Solana 4.1):
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+anchor build
+solana program deploy target/deploy/doxoracle_escrow.so \
+  --program-id target/deploy/doxoracle_escrow-keypair.json
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## TxLINE endpoints used
+
+- `POST /auth/guest/start` + `POST /token/activate` — API access (on-chain subscribe via `program.subscribe`)
+- `GET /fixtures/snapshot` — World Cup fixture list
+- `GET /odds/snapshot/{fixtureId}` — full-match 1X2 odds
+- `GET /scores/snapshot/{fixtureId}` — score + game state for resolution
+- `GET /odds/stream` (SSE) — live odds, proxied per fixture to the match page
+- `GET /scores/stat-validation` — Merkle proof material for on-chain verification
+- **On-chain**: CPI into Txoracle `validate_stat` against `daily_scores_roots` PDAs
+
+## Trust model (honest edition)
+
+- `resolve_verified` — permissionless + cryptographic (validate_stat CPI). The flagship path.
+- `resolve` — authority-signed fallback (service wallet) used only when TxLINE hasn't
+  published proof material for a fixture yet; commits a sha256 receipt of the score payload.
+- Program is upgradeable during the hackathon; authority can be burned post-event.
+
+---
+
+Built by [@suxcessparadox-dev](https://github.com/suxcessparadox-dev) with Claude (AI pair-engineer) — allowed per track rules ("open to individuals, teams, and AI agents").
