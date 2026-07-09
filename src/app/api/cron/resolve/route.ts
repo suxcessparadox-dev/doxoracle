@@ -72,7 +72,9 @@ export async function GET() {
         continue;
       }
 
-      const proof = await getMerkleProof(fixture.id);
+      // Proof receipt: real TxLINE Merkle proof when available, otherwise
+      // the score snapshot itself (v1 resolution is authority-gated)
+      const proof = (await getMerkleProof(fixture.id)) ?? score;
       const outcome =
         score.home > score.away ? 0 : score.home === score.away ? 1 : 2;
       const signature = await resolveMarketOnChain(fixture.id, outcome, proof);

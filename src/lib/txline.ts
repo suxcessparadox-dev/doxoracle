@@ -209,18 +209,30 @@ export async function getScore(
 }
 
 /**
- * Merkle proof for a finished fixture's result — verified on-chain via
- * validateStat before the escrow pays out.
- * TODO(txline): confirm the proof endpoint + payload against
- * https://txline.txodds.com/documentation/examples/onchain-validation
+ * Merkle proof material for a finished fixture's result
+ * (GET /scores/stat-validation, per the on-chain validation docs).
+ * statKey 1002 = full-time score stat used in TxLINE's own examples.
+ * Returns null if the proof isn't available yet — resolution then commits
+ * the score snapshot hash as the receipt instead (v1 is authority-gated;
+ * v2 CPI validation will require the real proof).
  */
 export async function getMerkleProof(fixtureId: string): Promise<unknown> {
   if (!txlineConfigured()) return null;
 
-  const res = await fetch(`${txlineBase()}/proofs/${fixtureId}`, {
-    headers: txlineHeaders(),
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`TxLINE proof: ${res.status}`);
-  return res.json();
+  try {
+    const params = new URLSearchParams({
+      fixtureId,
+      seq: "1",
+      statKey: "1002",
+    });
+    const res = await fetch(
+      `${txlineBase()}/scores/stat-validation?${params}`,
+      { headers: txlineHeaders(), cache: "no-store" },
+    );
+    if (!res.ok) throw new Error(`TxLINE stat-validation: ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.error(`[txline] proof fetch failed for ${fixtureId}:`, err);
+    return null;
+  }
 }
