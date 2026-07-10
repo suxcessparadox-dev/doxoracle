@@ -116,69 +116,103 @@ export default function AdminConsole() {
     }
   }
 
+  const opsBar = (
+    <header className="sticky top-0 z-50 border-b border-amber-500/25 bg-[#120f08]/95 backdrop-blur-md">
+      <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4 sm:px-6">
+        <div className="flex items-center gap-3">
+          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-500/15">
+            <Settings2 className="h-4 w-4 text-amber-400" />
+          </span>
+          <span className="font-mono text-sm font-bold tracking-wide">
+            DOXORACLE<span className="text-amber-400">/OPS</span>
+          </span>
+          <span className="hidden rounded-full border border-amber-500/30 px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-amber-400 sm:block">
+            restricted
+          </span>
+        </div>
+        <div className="flex items-center gap-4 font-mono text-[11px] text-muted">
+          <span className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-win" />
+            resolver online
+          </span>
+          <span className="hidden sm:block">devnet</span>
+          <a href="/" className="text-amber-400/80 hover:text-amber-300">
+            exit →
+          </a>
+        </div>
+      </div>
+    </header>
+  );
+
   if (!entered) {
     return (
-      <main className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-6 px-4 pb-24">
-        <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10">
-          <KeyRound className="h-6 w-6 text-accent-light" />
-        </span>
-        <div className="text-center">
-          <h1 className="text-2xl font-bold">Operator Console</h1>
-          <p className="mt-1 text-sm text-muted">
-            Enter the operator passcode to continue.
-          </p>
-          {authError ? (
-            <p className="mt-2 text-sm text-loss">Wrong passcode.</p>
-          ) : null}
-        </div>
-        <form
-          className="flex w-full gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!secret) return;
-            window.localStorage.setItem(SECRET_KEY, secret);
-            setEntered(true);
-          }}
-        >
-          <input
-            type="password"
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-            placeholder="Passcode"
-            className="h-12 w-full rounded-xl border border-line bg-card px-4 outline-none focus:border-accent"
-          />
-          <button
-            type="submit"
-            className="h-12 rounded-xl bg-accent px-6 font-semibold transition-colors hover:bg-accent-light"
+      <>
+        {opsBar}
+        <main className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-6 px-4 pb-24">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/10">
+            <KeyRound className="h-6 w-6 text-amber-400" />
+          </span>
+          <div className="text-center">
+            <h1 className="font-mono text-2xl font-bold">Operator access</h1>
+            <p className="mt-1 text-sm text-muted">
+              This console settles markets on-chain. Passcode required.
+            </p>
+            {authError ? (
+              <p className="mt-2 font-mono text-sm text-loss">
+                ✗ wrong passcode
+              </p>
+            ) : null}
+          </div>
+          <form
+            className="flex w-full gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!secret) return;
+              window.localStorage.setItem(SECRET_KEY, secret);
+              setEntered(true);
+            }}
           >
-            Enter
-          </button>
-        </form>
-      </main>
+            <input
+              type="password"
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              placeholder="Passcode"
+              className="h-12 w-full rounded-xl border border-amber-500/25 bg-card px-4 font-mono outline-none focus:border-amber-400"
+            />
+            <button
+              type="submit"
+              className="h-12 rounded-xl bg-amber-500 px-6 font-semibold text-bg transition-colors hover:bg-amber-400"
+            >
+              Enter
+            </button>
+          </form>
+        </main>
+      </>
     );
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-4 pb-24 pt-12 sm:px-6">
+    <>
+      {opsBar}
+      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-4 pb-24 pt-10 sm:px-6">
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-2">
-          <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight">
-            <Settings2 className="h-7 w-7 text-accent-light" />
-            Operator Console
+          <h1 className="font-mono text-2xl font-bold tracking-tight sm:text-3xl">
+            Market resolution
           </h1>
-          <p className="text-muted">
-            Markets whose match has ended but remain unresolved. Resolution
-            attempts the TxLINE Merkle-proof path first, with authority
-            fallback when the feed has no result data.
+          <p className="text-sm text-muted">
+            Ended, unresolved markets. Resolution attempts the TxLINE
+            Merkle-proof path first; authority fallback when the feed has no
+            result data. Every action lands on-chain.
           </p>
         </div>
         <button
           type="button"
           onClick={() => load(secret)}
-          className="flex h-9 shrink-0 items-center gap-2 rounded-lg border border-line px-3 text-xs text-muted transition-colors hover:border-accent hover:text-primary"
+          className="flex h-9 shrink-0 items-center gap-2 rounded-lg border border-amber-500/30 px-3 font-mono text-xs text-amber-400 transition-colors hover:bg-amber-500/10"
         >
           <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
+          refresh
         </button>
       </div>
 
@@ -294,6 +328,7 @@ export default function AdminConsole() {
           })}
         </div>
       )}
-    </main>
+      </main>
+    </>
   );
 }
