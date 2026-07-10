@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Clock, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Clock, Lock, ShieldCheck } from "lucide-react";
 
 import { LiveOdds } from "@/components/live-odds";
 import { StakePanel } from "@/components/stake-panel";
-import { getFixtures } from "@/lib/txline";
+import { getMarketState } from "@/lib/resolver";
+import { getFixtureById, getFixtures } from "@/lib/txline";
 
 const kickoffFormat = new Intl.DateTimeFormat("en-GB", {
   weekday: "long",
@@ -22,9 +23,33 @@ export default async function MarketDetail({
 }) {
   const { id } = await params;
   const { fixtures, source } = await getFixtures();
-  const fixture = fixtures.find((f) => f.id === id);
+  let fixture = fixtures.find((f) => f.id === id) ?? null;
+  if (!fixture) fixture = await getFixtureById(id);
 
-  if (!fixture) notFound();
+  let marketState: Awaited<ReturnType<typeof getMarketState>> = null;
+  try {
+    marketState = await getMarketState(id);
+  } catch {
+    // read-only lookup failed — page still renders from fixture data
+  }
+
+  if (!fixture) {
+    // Fixture left the TxLINE feed, but an on-chain market with positions
+    // still exists — synthesize enough to render the page
+    if (!marketState) notFound();
+    fixture = {
+      id,
+      home: "Home team",
+      away: "Away team",
+      homeFlag: "⚽",
+      awayFlag: "⚽",
+      kickoff: new Date(marketState.kickoffTs * 1000).toISOString(),
+      stage: "World Cup",
+      odds: { home: 0, draw: 0, away: 0 },
+    };
+  }
+
+  const closed = Date.parse(fixture.kickoff) <= Date.now();
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-4 pb-24 pt-10 sm:px-6">
@@ -66,10 +91,14 @@ export default async function MarketDetail({
           </div>
         </div>
 
-        <LiveOdds fixture={fixture} />
-        <p className="text-center text-xs text-muted">
-          Odds {source === "txline" ? "streamed live from TxLINE" : "simulated until TxLINE activation — same stream contract"}
-        </p>
+        {closed ? null : (
+          <>
+            <LiveOdds fixture={fixture} />
+            <p className="text-center text-xs text-muted">
+              Odds {source === "txline" ? "streamed live from TxLINE" : "simulated until TxLINE activation — same stream contract"}
+            </p>
+          </>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_400px]">
@@ -111,8 +140,39 @@ export default async function MarketDetail({
           </ol>
         </div>
 
-        {/* Stake panel */}
-        <StakePanel fixture={fixture} />
+        {/* Stake panel / closed-market state */}
+        {closed ? (
+          <div className="flex h-fit flex-col gap-4 rounded-2xl border border-line bg-card p-6">
+            <h2 className="flex items-center gap-2 text-lg font-semibold">
+              <Lock className="h-5 w-5 text-muted" />
+              Market closed
+            </h2>
+            <p className="text-sm leading-relaxed text-muted">
+              Staking locked at kickoff.{" "}
+              {marketState?.resolved
+                ? "The result has been settled on-chain — winners can claim their payout."
+                : "The result will be settled on-chain once TxLINE publishes the final score."}
+            </p>
+            {marketState?.resolved ? (
+              <a
+                href={`/api/proof/${fixture.id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-win hover:underline"
+              >
+                View the Merkle proof receipt →
+              </a>
+            ) : null}
+            <Link
+              href="/bets"
+              className="flex h-11 items-center justify-center rounded-xl bg-accent font-semibold transition-colors hover:bg-accent-light"
+            >
+              View your position in My Bets
+            </Link>
+          </div>
+        ) : (
+          <StakePanel fixture={fixture} />
+        )}
       </div>
     </main>
   );

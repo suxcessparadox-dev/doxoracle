@@ -158,6 +158,33 @@ export async function getFixtures(): Promise<FixturesResult> {
   }
 }
 
+/**
+ * Direct lookup of one fixture by ID from the full snapshot — no time-window
+ * filter, so detail pages for ended matches (where users hold positions)
+ * keep working after the fixture leaves the markets list.
+ */
+export async function getFixtureById(
+  fixtureId: string,
+): Promise<FixturePreview | null> {
+  if (!txlineConfigured()) {
+    return previewFixtures.find((f) => f.id === fixtureId) ?? null;
+  }
+  try {
+    const res = await fetch(`${txlineBase()}/fixtures/snapshot`, {
+      headers: txlineHeaders(),
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) throw new Error(`TxLINE fixtures snapshot: ${res.status}`);
+    const all = (await res.json()) as TxFixture[];
+    const fx = all.find((f) => String(f.FixtureId) === fixtureId);
+    if (!fx) return null;
+    return mapFixture(fx, await fetchOddsFor(fx));
+  } catch (err) {
+    console.error(`getFixtureById(${fixtureId}) failed:`, err);
+    return previewFixtures.find((f) => f.id === fixtureId) ?? null;
+  }
+}
+
 export interface ScoreSnapshot {
   fixtureId: string;
   home: number;

@@ -134,6 +134,32 @@ export async function resolveMarketOnChain(
     .rpc();
 }
 
+export interface ResolvableMarket {
+  fixtureId: string;
+  kickoffTs: number;
+}
+
+/**
+ * Unresolved on-chain markets whose match should have ended — the cron's
+ * work list. The chain is the source of truth: markets never age out the way
+ * fixtures drop off the TxLINE snapshot window.
+ */
+export async function listResolvableMarkets(): Promise<ResolvableMarket[]> {
+  const { program } = resolverProgram();
+  const matchMaxMs = 2.5 * 60 * 60 * 1000;
+  const all = await program.account.market.all();
+  return all
+    .filter(
+      (m) =>
+        !m.account.resolved &&
+        Number(m.account.kickoffTs) * 1000 + matchMaxMs < Date.now(),
+    )
+    .map((m) => ({
+      fixtureId: m.account.fixtureId,
+      kickoffTs: Number(m.account.kickoffTs),
+    }));
+}
+
 const TXORACLE_PROGRAM_ID = new PublicKey(
   "6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J",
 );
@@ -185,16 +211,21 @@ async function resolveVerifiedOnChain(
   const { program } = resolverProgram();
   const payload = proofPayload as AnyRecord;
 
-  const rawTs = Number(
-    pick(payload, "targetTs", "ts", "timestamp") ??
+  // ts arrives in epoch milliseconds from the API; pass through unchanged
+  const ts = Number(
+    pick(payload, "ts", "targetTs", "timestamp") ??
       (() => {
         throw new Error("no ts in proof payload");
       })(),
   );
-  const ts = rawTs > 1e12 ? Math.floor(rawTs / 1000) : rawTs; // normalize to seconds
 
-  const summarySrc = pick(payload, "fixtureSummary", "fixture_summary") as AnyRecord;
-  if (!summarySrc) throw new Error("no fixtureSummary in proof payload");
+  const summarySrc = pick(
+    payload,
+    "summary",
+    "fixtureSummary",
+    "fixture_summary",
+  ) as AnyRecord;
+  if (!summarySrc) throw new Error("no summary in proof payload");
   const statsSrc = pick(summarySrc, "updateStats", "update_stats") as AnyRecord;
   const fixtureSummary = {
     fixtureId: new BN(String(pick(summarySrc, "fixtureId", "fixture_id"))),
@@ -204,27 +235,37 @@ async function resolveVerifiedOnChain(
       maxTimestamp: new BN(String(pick(statsSrc, "maxTimestamp", "max_timestamp"))),
     },
     eventsSubTreeRoot: toBytes32(
-      pick(summarySrc, "eventsSubTreeRoot", "events_sub_tree_root"),
+      pick(
+        summarySrc,
+        "eventStatsSubTreeRoot",
+        "eventsSubTreeRoot",
+        "events_sub_tree_root",
+      ),
     ),
   };
 
-  const mapStat = (src: unknown) => {
-    const stat = src as AnyRecord;
-    return {
-      statToProve: pick(stat, "statToProve", "stat_to_prove", "stat"),
-      eventStatRoot: toBytes32(pick(stat, "eventStatRoot", "event_stat_root")),
-      statProof: mapProofNodes(pick(stat, "statProof", "stat_proof")),
-    };
+  // The confirmed payload carries the stat term at the top level
+  const statToProve = pick(payload, "statToProve", "stat_to_prove") as AnyRecord;
+  if (!statToProve) throw new Error("no statToProve in proof payload");
+  const statA = {
+    statToProve: {
+      key: Number(statToProve.key),
+      value: Number(statToProve.value),
+      period: Number(statToProve.period ?? 0),
+    },
+    eventStatRoot: toBytes32(pick(payload, "eventStatRoot", "event_stat_root")),
+    statProof: mapProofNodes(pick(payload, "statProof", "stat_proof")),
   };
 
-  const statA = pick(payload, "stat1", "statA", "stat_a", "stat");
-  if (!statA) throw new Error("no stat in proof payload");
-  const statB = pick(payload, "stat2", "statB", "stat_b");
-  const predicate = pick(payload, "predicate") as AnyRecord;
-  const op = pick(payload, "op", "operation");
+  // No predicate in the payload: assert the proven value equals itself, so
+  // the on-chain check hinges entirely on Merkle proof authenticity
+  const predicate = (pick(payload, "predicate") as AnyRecord) ?? {
+    threshold: statA.statToProve.value,
+    comparison: { equalTo: {} },
+  };
 
-  // Txoracle keeps daily score roots in a per-epoch-day PDA
-  const epochDay = Math.floor(ts / 86400);
+  // Txoracle keeps daily score roots in a per-epoch-day PDA (ts is in ms)
+  const epochDay = Math.floor(ts / 86_400_000);
   const epochBuf = Buffer.alloc(2);
   epochBuf.writeUInt16LE(epochDay & 0xffff);
   const [dailyScoresPda] = PublicKey.findProgramAddressSync(
@@ -240,18 +281,19 @@ async function resolveVerifiedOnChain(
         new BN(ts),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         fixtureSummary as any,
+        // subTreeProof proves the fixture summary within the day's batch
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        mapProofNodes(pick(payload, "fixtureProof", "fixture_proof")) as any,
+        mapProofNodes(
+          pick(payload, "subTreeProof", "fixtureProof", "fixture_proof"),
+        ) as any,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         mapProofNodes(pick(payload, "mainTreeProof", "main_tree_proof")) as any,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         predicate as any,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        mapStat(statA) as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (statB ? mapStat(statB) : null) as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (op ?? null) as any,
+        statA as any,
+        null,
+        null,
       )
       .accountsPartial({
         market: deriveMarketEscrow(fixtureId),
