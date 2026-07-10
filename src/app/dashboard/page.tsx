@@ -14,6 +14,7 @@ import {
   Activity,
   ChevronRight,
   Coins,
+  RefreshCw,
   Ticket,
   TrendingUp,
 } from "lucide-react";
@@ -57,6 +58,7 @@ export default function Dashboard() {
   const anchorWallet = useAnchorWallet();
   const [bets, setBets] = useState<DisplayBet[] | null>(null);
   const [selected, setSelected] = useState<DisplayBet | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const program = useMemo(
     () => (anchorWallet ? getEscrowProgram(connection, anchorWallet) : null),
@@ -105,7 +107,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [program, publicKey]);
+  }, [program, publicKey, refreshKey]);
 
   if (!connected) {
     return (
@@ -126,11 +128,22 @@ export default function Dashboard() {
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-4 pb-24 pt-12 sm:px-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="font-mono text-sm text-muted">
-          {publicKey?.toBase58().slice(0, 8)}…{publicKey?.toBase58().slice(-8)}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="font-mono text-sm text-muted">
+            {publicKey?.toBase58().slice(0, 8)}…
+            {publicKey?.toBase58().slice(-8)}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setRefreshKey((k) => k + 1)}
+          className="flex h-9 shrink-0 items-center gap-2 rounded-lg border border-line px-3 text-xs text-muted transition-colors hover:border-accent hover:text-primary"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Refresh
+        </button>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
