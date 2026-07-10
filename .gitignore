@@ -47,3 +47,4 @@ scripts/.txline-keypair.json
 # Anchor/Rust build artifacts
 target/
 .anchor/
+DEMO-SCRIPT.md
