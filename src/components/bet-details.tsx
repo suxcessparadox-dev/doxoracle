@@ -97,16 +97,14 @@ export function BetDetails({
           </a>
         ) : null}
         {bet.status !== "open" ? (
-          <a
-            href={`/api/proof/${bet.fixtureId}`}
-            target="_blank"
-            rel="noreferrer"
+          <Link
+            href={`/receipt/${bet.fixtureId}?match=${encodeURIComponent(bet.matchLabel)}`}
+            onClick={onNavigate}
             className="flex items-center gap-1.5 text-win hover:underline"
           >
             <FileCheck className="h-3.5 w-3.5" />
             TxLINE Merkle proof receipt
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
+          </Link>
         ) : null}
       </div>
 

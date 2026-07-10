@@ -154,14 +154,12 @@ export default async function MarketDetail({
                 : "The result will be settled on-chain once TxLINE publishes the final score."}
             </p>
             {marketState?.resolved ? (
-              <a
-                href={`/api/proof/${fixture.id}`}
-                target="_blank"
-                rel="noreferrer"
+              <Link
+                href={`/receipt/${fixture.id}`}
                 className="text-sm text-win hover:underline"
               >
                 View the Merkle proof receipt →
-              </a>
+              </Link>
             ) : null}
             <Link
               href="/bets"
