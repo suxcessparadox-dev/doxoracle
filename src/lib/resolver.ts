@@ -146,7 +146,9 @@ export interface ResolvableMarket {
  */
 export async function listResolvableMarkets(): Promise<ResolvableMarket[]> {
   const { program } = resolverProgram();
-  const matchMaxMs = 2.5 * 60 * 60 * 1000;
+  // 90' + halftime + stoppage ≈ 1h50m; list slightly early — the cron still
+  // requires feed status "finished", and the console defers to the operator
+  const matchMaxMs = 1.75 * 60 * 60 * 1000;
   const all = await program.account.market.all();
   return all
     .filter(
